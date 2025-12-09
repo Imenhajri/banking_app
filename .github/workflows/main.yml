@@ -1,0 +1,32 @@
+# .github/workflows/quickdraw.yml
+name: Quickdraw Achievement Helper
+
+on:
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  quickdraw:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Create Test Issue
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '[TEST] Quickdraw Achievement',
+            body: 'This issue will be closed immediately for Quickdraw achievement.'
+          });
+          console.log(`Issue created: ${issue.data.number}`);
+          
+          // Close the issue immediately
+          await github.rest.issues.update({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: issue.data.number,
+            state: 'closed'
+          });
+          
+          console.log('Issue closed! Quickdraw achieved?');
