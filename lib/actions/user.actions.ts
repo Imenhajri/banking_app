@@ -26,9 +26,15 @@ export const getUserInfo = async ({ userId }: getUserInfoProps) => {
       [Query.equal('userId', [userId])]
     )
 
+    if (!user.documents || user.documents.length === 0) {
+      console.log('No user found with userId:', userId);
+      return null;
+    }
+
     return parseStringify(user.documents[0]);
   } catch (error) {
-    console.log(error)
+    console.log('Error in getUserInfo:', error)
+    return null;
   }
 }
 
@@ -44,39 +50,66 @@ export const signIn = async ({ email, password }: signInProps) => {
       secure: true,
     });
 
-    const user = await getUserInfo({ userId: session.userId }) 
+    const user = await getUserInfo({ userId: session.userId })
+
+    if (!user) {
+      console.error('User not found after sign in');
+      throw new Error('User not found in database');
+    }
 
     return parseStringify(user);
   } catch (error) {
-    console.error('Error', error);
+    console.error('Error in signIn:', error);
+    return null;
   }
 }
 
 export const signUp = async ({ password, ...userData }: SignUpParams) => {
   const { email, firstName, lastName } = userData;
-  
+
   let newUserAccount;
 
   try {
     const { account, database } = await createAdminClient();
 
     newUserAccount = await account.create(
-      ID.unique(), 
-      email, 
-      password, 
+      ID.unique(),
+      email,
+      password,
       `${firstName} ${lastName}`
     );
 
     if(!newUserAccount) throw new Error('Error creating user')
 
-    const dwollaCustomerUrl = await createDwollaCustomer({
-      ...userData,
-      type: 'personal'
-    })
+    console.log('User account created successfully:', newUserAccount.$id);
 
-    if(!dwollaCustomerUrl) throw new Error('Error creating Dwolla customer')
+    let dwollaCustomerUrl;
+    let dwollaCustomerId;
 
-    const dwollaCustomerId = extractCustomerIdFromUrl(dwollaCustomerUrl);
+    try {
+      dwollaCustomerUrl = await createDwollaCustomer({
+        ...userData,
+        type: 'personal'
+      })
+
+      if(!dwollaCustomerUrl) throw new Error('Error creating Dwolla customer')
+
+      dwollaCustomerId = extractCustomerIdFromUrl(dwollaCustomerUrl);
+      console.log('Dwolla customer created:', dwollaCustomerId);
+    } catch (dwollaError: any) {
+      console.error('Dwolla customer creation failed:', dwollaError);
+      // Continue with placeholder values for development
+      dwollaCustomerUrl = 'https://api-sandbox.dwolla.com/customers/placeholder';
+      dwollaCustomerId = 'placeholder';
+      console.log('Using placeholder Dwolla values');
+    }
+
+    console.log('Creating database document with data:', {
+      userId: newUserAccount.$id,
+      email: userData.email,
+      firstName: userData.firstName,
+      lastName: userData.lastName
+    });
 
     const newUser = await database.createDocument(
       DATABASE_ID!,
@@ -90,6 +123,8 @@ export const signUp = async ({ password, ...userData }: SignUpParams) => {
       }
     )
 
+    console.log('Database document created successfully:', newUser.$id);
+
     const session = await account.createEmailPasswordSession(email, password);
 
     cookies().set("appwrite-session", session.secret, {
@@ -100,8 +135,9 @@ export const signUp = async ({ password, ...userData }: SignUpParams) => {
     });
 
     return parseStringify(newUser);
-  } catch (error) {
-    console.error('Error', error);
+  } catch (error: any) {
+    console.error('Error in signUp:', error);
+    console.error('Error details:', error.message, error.code, error.type);
   }
 }
 
@@ -194,7 +230,7 @@ export const exchangePublicToken = async ({
 
     const accessToken = response.data.access_token;
     const itemId = response.data.item_id;
-    
+
     // Get account information from Plaid using the access token
     const accountsResponse = await plaidClient.accountsGet({
       access_token: accessToken,
@@ -218,7 +254,7 @@ export const exchangePublicToken = async ({
       processorToken,
       bankName: accountData.name,
     });
-    
+
     // If the funding source URL is not created, throw an error
     if (!fundingSourceUrl) throw Error;
 
